@@ -21,6 +21,7 @@ href <- bands$href[[1]]
 
 get_timeline <- function(href, pause = 0) {
     # just not to irritate wikipedia to much
+    # (!?) use package polite
     Sys.sleep(pause)
     
     timeline_href <- href %>% 
@@ -29,54 +30,72 @@ get_timeline <- function(href, pause = 0) {
         html_nodes(xpath = "//a[@title = 'Edit section: Timeline']") %>% 
         html_attr("href")
     
-    timeline_code <- read_html(str_c(wiki_root, timeline_href)) %>% 
+    timeline_code <- timeline_href %>% 
+        str_c(wiki_root, .) %>%
+        read_html() %>% 
         html_node(xpath = "//textarea") %>% 
         html_text()
     
     # parse timeline_code
+    code_blocks_0 <- timeline_code %>%
+        # split assignment blocks - statements with single equality sign
+        str_split("\n(?=\\s*\\w+\\s*=)") %>% 
+        .[[1]] %>% 
+        str_subset("\\w+\\s*=\\s*\\w+") %>% 
+        # separate what's before and after the = sign
+        str_split("\\s*=\\s*")
+    
+    code_blocks <- map(code_blocks_0, 2)
+    names(code_blocks) <- map(code_blocks_0, 1)
+    
+    
 }
 
 
-# timeline plot script
-# need to parse it
-scr <- timeline_href %>% 
-    str_c(wiki_root, .) %>%
-    read_html() %>% 
-    html_node(xpath = "//textarea") %>% 
-    html_text()
+#########################
+parse_code_block <- function(s) {
+    item_starters <- c("id", "bar", "at")
+    
+    sl <- str_split(s, "\n")[[1]] %>% 
+        str_trim() %>% 
+        discard(~.=="") %>% 
+        str_split("\\s+") %>% 
+        map(~str_split(., ":")) %>%
+        map(~set_names(map(., 2), nm = map(.,1)))
+    
+    sdf <- data_frame(line = sl) %>% 
+        mutate(first = map_chr(line, ~names(.)[[1]])) %>% 
+        mutate(item = (first %in% item_starters)) %>%
+        # group is >= 1 global parameter defition lines (item == FALSE)
+        #   followed by >= 1 item definitions (item == TRUE)
+        # following is just a lazy smart-ass way to encode it
+        mutate(group = cumsum(c(0, diff(item)) == -1))
+    
+    # collapse global params in each group
+    # locf where missing
+    sdf_g <- sdf %>%
+        filter(!item) %>% 
+        group_by(group) %>% 
+        summarise(g_line = list(flatten(line)))
+    
+    sdf_g$g_line <- sdf_g$g_line %>% 
+        bind_rows() %>% 
+        mutate_all(funs(zoo::na.locf)) %>% 
+        transpose()
+    
+    sdf_i <- sdf %>%
+        filter(item) %>% 
+        select(group, i_line = line)
+    
+    left_join(sdf_i, sdf_g, by = "group") %>%
+        # first look at the global param
+        # which could be overwritten in item definition
+        mutate(line = map2(g_line, i_line, c)) %>% 
+        pull(line) %>% 
+        bind_rows()
+}
 
-scr_s <- scr %>%
-    str_split("\n") %>% 
-    .[[1]] 
-
-tmp <- scr %>%
-    # split assignment blocks - statements with single equality sign
-    str_split("\n(?=\\s*\\w+\\s*=)") %>% 
-    .[[1]] %>% 
-    str_subset("\\w+\\s*=\\s*\\w+") %>% 
-    # separate what's before and after the = sign
-    str_split("\\s*=\\s*")
-
-# convert to list
-tmp_l <- map(tmp, 2)
-names(tmp_l) <- map(tmp, 1)
-
-# complicated case
-tt <- tmp_l[[13]]
-cat(tt)
-
-tt_s <- tt %>%
-    str_split("\\s+") %>% 
-    .[[1]] %>% 
-    str_subset(":") %>% 
-    str_split(":")
-
-tt_l <- map(tt_s, 2)
-names(tt_l) <- map(tt_s, 1)
-
-# process tt_s
-
-
+parse_code_block(code_blocks[[13]])
 
 # (!)
 # graph of shared members
