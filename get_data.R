@@ -4,14 +4,24 @@ library(purrr)
 library(stringr)
 library(magrittr)
 library(polite)
+library(furrr)
+
 
 page_zero <- "https://en.wikipedia.org/wiki/Category:Lists_of_members_by_band"
-wiki_root <- "https://en.wikipedia.org/"
 
 
-session <- bow(page_zero)
+# wiki_url(c("blablabla", page_zero))
+wiki_url <- function(x) {
+    wiki_root <- "https://en.wikipedia.org"
+    loc <- str_sub(x, 1, nchar(wiki_root)) != wiki_root
+    x[loc] <- paste(wiki_root, x[loc], sep = "/")
+    x
+}
 
-bands <- session %>% 
+
+bandmembers <- page_zero %>%
+    # honestly don't know if it makes sense
+    bow() %>% 
     scrape() %>% 
     html_nodes(xpath = "//div[@class = 'mw-category-group']/ul/li/a") %>% 
     html_attrs() %>%
@@ -22,8 +32,39 @@ bands <- session %>%
     mutate(name = str_remove_all(title, "^List of | members$")) %>% 
     select(name, href)
 
-href <- bands$href[[1]]
 
+get_timeline_code <- function(href, wait = 0) {
+    Sys.sleep(wait)
+    timeline_href <- href %>% 
+        wiki_url() %>%  
+        read_html() %>% 
+        # could be 2 such nodes - looks like duplicated
+        html_node(xpath = "//a[@title = 'Edit section: Timeline']") %>% 
+        html_attr("href")
+    
+    if (length(timeline_href) == 0) return(NA_character_)
+    
+    timeline_code <- timeline_href %>% 
+        wiki_url() %>%
+        read_html() %>% 
+        html_node(xpath = "//textarea") %>% 
+        html_text()
+    
+    if (!is.character(timeline_code) & length(timeline_code) != 1) return(NA_character_)
+    return(timeline_code)
+}
+
+
+# (!) takes some time
+bandmembers <- bandmembers %>% 
+    mutate(timeline_code = map_chr(href, possibly(get_timeline_code, otherwise = "ERROR"), wait = .2))
+
+
+
+    
+
+
+# will be used in the get_timeline function
 parse_code_block <- function(s) {
     item_starters <- c("id", "bar", "at")
     
@@ -74,25 +115,8 @@ parse_code_block <- function(s) {
 }
 
 
-get_timeline <- function(href, pause = 0) {
-    # just not to irritate wikipedia to much
-    # (!?) use package polite
-    Sys.sleep(pause)
-    
-    timeline_href <- href %>% 
-        str_c(wiki_root, .) %>% 
-        read_html() %>% 
-        html_nodes(xpath = "//a[@title = 'Edit section: Timeline']") %>% 
-        html_attr("href")
-    
-    timeline_code <- timeline_href %>% 
-        str_c(wiki_root, .) %>%
-        read_html() %>% 
-        html_node(xpath = "//textarea") %>% 
-        html_text()
-    
-    # parse timeline_code
-    code_blocks_0 <- timeline_code %>%
+parse_timeline_code <- function(x) {
+    code_blocks_0 <- x %>%
         # split assignment blocks - statements with single equality sign
         str_split("\n(?=\\s*\\w+\\s*=)") %>% 
         .[[1]] %>% 
@@ -103,16 +127,17 @@ get_timeline <- function(href, pause = 0) {
     code_blocks <- map(code_blocks_0, 2)
     names(code_blocks) <- map(code_blocks_0, 1)
     
-    code_dfs_try <- map(code_blocks, safely(parse_code_block))
-    code_dfs <- map(code_dfs_try, "result")
+    code_dfs <- map(code_blocks, possibly(parse_code_block, NULL))
     where_null <- map_lgl(code_dfs, is.null)
     code_dfs[where_null] <- code_blocks[where_null]
     code_dfs
 }
 
-# stringi    (1.1.7  -> 1.2.4 ) [CRAN]
-# stringr    (1.3.0  -> 1.3.1 ) [CRAN]
-# urltools   (1.7.0  -> 1.7.1 ) [CRAN]
+
+
+
+
+
 
 
 #########################
