@@ -27,11 +27,10 @@ bandmembers <- page_zero %>%
     html_attrs() %>%
     transpose() %>%
     .[c("href", "title")] %>% 
-    as_data_frame() %>% 
+    as_tibble() %>% 
     mutate_all(unlist) %>% 
     mutate(name = str_remove_all(title, "^List of | members$")) %>% 
     select(name, href)
-
 
 get_timeline_code <- function(href, wait = 0) {
     Sys.sleep(wait)
@@ -56,13 +55,9 @@ get_timeline_code <- function(href, wait = 0) {
 
 
 # (!) takes some time
-bandmembers <- bandmembers %>% 
+bandmembers <-
+    bandmembers %>% 
     mutate(timeline_code = map_chr(href, possibly(get_timeline_code, otherwise = "ERROR"), wait = .2))
-
-
-
-    
-
 
 # will be used in the get_timeline function
 parse_code_block <- function(s) {
@@ -134,6 +129,8 @@ parse_timeline_code <- function(x) {
 }
 
 
+#
+parse_timeline_code(bandmembers$timeline_code[[1]])
 
 
 
@@ -143,9 +140,10 @@ parse_timeline_code <- function(x) {
 #########################
 # (!)
 # graph of shared members
+# member of most groups - liked highlight his lines
 # most/least changed/...
 # most common/uncommon positions
-# biggest break among members/groups
+# biggest break among members/groups -> top 5 breaks - minicharts tooltips
 
 # (?)
 # https://en.wikipedia.org/wiki/List_of_The_Jackson_5_band_members nothing here
